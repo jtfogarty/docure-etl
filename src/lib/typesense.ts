@@ -113,36 +113,47 @@ class TypesenseClient {
       // Fetch characters
       const charactersResult = await this.client.collections('characters').documents().search({
         q: '*',
-        filter_by: `id:${playId}`,
-        per_page: 100,
+        filter_by: `play_id:${playId}`,
+        per_page: defaultPerPage,
       }) as TypesenseSearchResult<Character>;
 
       // Fetch acts
       const actsResult = await this.client.collections('acts').documents().search({
         q: '*',
-        filter_by: `id:${playId}`,
-        per_page: 100,
+        filter_by: `play_id:${playId}`,
+        per_page: defaultPerPage,
       }) as TypesenseSearchResult<Act>;
 
-      // Search scenes
-      const scenesResult = await this.client.collections('scenes').documents().search({
-        q: searchText,
-        query_by: 'title',
-        filter_by: `id:${playId}`,
-        per_page: perPage,
-        page: page,
-      }) as TypesenseSearchResult<Scene>;
+      // Fetch scenes for the play (with pagination)
+      let allScenes: Scene[] = [];
+      let scenePage = 1;
+      let totalScenes = 0;
 
-      // Fetch speeches
+      do {
+        const scenesResult = await this.client.collections('scenes').documents().search({
+          q: '*',
+          filter_by: `act_id:=[${actsResult.hits?.map(hit => hit.document.id).join(',')}]`,
+          per_page: defaultPerPage,
+          page: scenePage,
+        }) as TypesenseSearchResult<Scene>;
+
+        allScenes = allScenes.concat(scenesResult.hits?.map(hit => hit.document) || []);
+        totalScenes = scenesResult.found || 0;
+        scenePage++;
+      } while (allScenes.length < totalScenes);
+
+      // Get all scene IDs
+      const sceneIds = allScenes.map(scene => scene.id);
+
+      // Search speeches using the scene IDs
       const speechesResult = await this.client.collections('speeches').documents().search({
         q: searchText,
         query_by: 'content',
-        filter_by: `scene_id:=[${scenesResult.hits?.map(hit => hit.document.id).join(',')}]`,
+        filter_by: `scene_id:=[${sceneIds.join(',')}]`,
         per_page: perPage,
         page: page,
       }) as TypesenseSearchResult<Speech>;
 
-      const scenes = scenesResult.hits?.map(hit => hit.document) || [];
       const speeches = speechesResult.hits?.map(hit => hit.document) || [];
       const found = speechesResult.found || 0;
       const total_pages = Math.ceil(found / perPage);
@@ -151,7 +162,7 @@ class TypesenseClient {
         play: play,
         characters: charactersResult.hits?.map(hit => hit.document) || [],
         acts: actsResult.hits?.map(hit => hit.document) || [],
-        scenes: scenes,
+        scenes: allScenes,
         speeches: speeches,
         found: found,
         page: page,
