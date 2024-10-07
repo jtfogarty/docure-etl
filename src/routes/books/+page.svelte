@@ -23,12 +23,15 @@
 		isLoading = true;
 		try {
 			const works = await getShakespeareWorks();
-			books = works
-				.sort((a, b) => a.title.localeCompare(b.title))
-				.map((work: ShakespeareWorks) => ({
-					value: work.id.toString(),
-					label: work.title
-				}));
+			books = [
+				{ value: "all", label: "All Plays" },
+				...works
+					.sort((a, b) => a.title.localeCompare(b.title))
+					.map((work: ShakespeareWorks) => ({
+						value: work.id.toString(),
+						label: work.title
+					}))
+			];
 		} catch (error) {
 			console.error('Failed to load Shakespeare works:', error);
 		} finally {
@@ -49,17 +52,37 @@
 			return 'No results found.';
 		}
 
-		let output = `Play: ${results.play.title}\n\n`;
-		results.speeches.forEach((speech: Speech) => {
+		let output = `Search Results for: "${searchInput}"\n`;
+		output += `Play: ${results.play.title}\n\n`;
+
+		results.speeches.forEach((speech: Speech, index: number) => {
 			const scene = results.scenes.find(s => s.id === speech.scene_id);
 			const act = results.acts.find(a => a.id === scene?.act_id);
+			
+			if (results.play.id === 'all') {
+				const playTitle = scene?.play_id ? books.find(book => book.value === scene.play_id)?.label : 'Unknown Play';
+				output += `Play: ${playTitle || 'Unknown Play'}\n`;
+			}
+			
 			output += `Act: ${act?.title || 'Unknown'}\n`;
 			output += `Scene: ${scene?.title || 'Unknown'}\n`;
 			output += `Character: ${speech.speaker}\n`;
-			output += `Speech: ${speech.content}\n\n`;
+			
+			// Highlight the search term in the speech content
+			let highlightedContent = speech.content;
+			if (searchInput) {
+				const regex = new RegExp(`(${searchInput})`, 'gi');
+				highlightedContent = highlightedContent.replace(regex, '**$1**');
+			}
+			
+			output += `Speech:\n${highlightedContent}\n`;
+			
+			if (index < results.speeches.length - 1) {
+				output += '\n---\n\n';
+			}
 		});
 
-		output += `Found ${results.found} result(s). Page ${results.page} of ${results.total_pages}.`;
+		output += `\nFound ${results.found} result(s). Page ${results.page} of ${results.total_pages}.`;
 		return output;
 	}
 
