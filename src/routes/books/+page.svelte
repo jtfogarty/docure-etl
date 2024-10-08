@@ -24,7 +24,7 @@
 		try {
 			const works = await getShakespeareWorks();
 			books = [
-				{ value: 'all', label: 'All' },
+				{ value: "all", label: "All Plays" },
 				...works
 					.sort((a, b) => a.title.localeCompare(b.title))
 					.map((work: ShakespeareWorks) => ({
@@ -47,41 +47,42 @@
 			: books
 	);
 
-	function reconstructPlay(results: SearchResult): string {
-		if (!results || !results.play) {
-			return 'No play data available.';
+	function formatSearchResults(results: SearchResult): string {
+		if (!results || !results.speeches.length) {
+			return 'No results found.';
 		}
 
-		let output = `Title: ${results.play.title}\n`;
-		if (results.play.playsubt) output += `Subtitle: ${results.play.playsubt}\n`;
+		let output = `Search Results for: "${searchInput}"\n`;
+		output += `Play: ${results.play.title}\n\n`;
 
-		output += "\nCharacters:\n";
-		results.characters.forEach(character => {
-			output += `- ${character.name}\n`;
-			if (character.group_description) {
-				output += `  Group: ${character.group_description}\n`;
+		results.speeches.forEach((speech: Speech, index: number) => {
+			const scene = results.scenes.find(s => s.id === speech.scene_id);
+			const act = results.acts.find(a => a.id === scene?.act_id);
+			
+			if (results.play.id === 'all') {
+				const playTitle = scene?.play_id ? books.find(book => book.value === scene.play_id)?.label : 'Unknown Play';
+				output += `Play: ${playTitle || 'Unknown Play'}\n`;
 			}
-			if (character.individual_description) {
-				output += `  Description: ${character.individual_description}\n`;
+			
+			output += `Act: ${act?.title || 'Unknown'}\n`;
+			output += `Scene: ${scene?.title || 'Unknown'}\n`;
+			output += `Character: ${speech.speaker}\n`;
+			
+			// Highlight the search term in the speech content
+			let highlightedContent = speech.content;
+			if (searchInput) {
+				const regex = new RegExp(`(${searchInput})`, 'gi');
+				highlightedContent = highlightedContent.replace(regex, '**$1**');
+			}
+			
+			output += `Speech:\n${highlightedContent}\n`;
+			
+			if (index < results.speeches.length - 1) {
+				output += '\n---\n\n';
 			}
 		});
 
-		output += "\nPlay:\n";
-		if (results.play.fm) output += `${results.play.fm}\n`;
-		if (results.play.scndescr) output += `\nScene: ${results.play.scndescr}\n`;
-
-		results.acts.forEach(act => {
-			output += `\n${act.title}\n`;
-			const actScenes = results.scenes.filter(scene => scene.act_id === act.id);
-			actScenes.forEach(scene => {
-				output += `\n  ${scene.title}\n`;
-				const sceneSpeches = results.speeches.filter(speech => speech.scene_id === scene.id);
-				sceneSpeches.forEach(speech => {
-					output += `    ${speech.speaker}: ${speech.content}\n`;
-				});
-			});
-		});
-
+		output += `\nFound ${results.found} result(s). Page ${results.page} of ${results.total_pages}.`;
 		return output;
 	}
 
@@ -93,19 +94,15 @@
 		try {
 			isLoading = true;
 			searchResults = await searchSpeeches(value, searchInput);
-			reconstructedPlay = reconstructPlay(searchResults);
+			reconstructedPlay = formatSearchResults(searchResults);
 		} catch (error) {
 			console.error('Error searching speeches:', error);
-			// Handle error (e.g., show an error message to the user)
+			reconstructedPlay = 'An error occurred while searching. Please try again.';
 		} finally {
 			isLoading = false;
 		}
 	}
 </script>
-
-<style>
-/* Your CSS here */
-</style>
 
 <div class="flex max-w-[1700px] mx-auto w-full overflow-hidden flex-col px-4">
 	<div class="flex flex-col space-y-3 mt-3">
@@ -120,21 +117,21 @@
 					>
 						{value
 							? books.find((book) => book.value === value)?.label
-							: "Select Shakespeare Book..."}
+							: "Select Shakespeare Play..."}
 							<ChevronsUpDown class="ml-2 h-4 w-4 shrink-0 opacity-50" />
 					</Button>
 			</Popover.Trigger>
 			<Popover.Content class="w-[250px] p-0 bg-[#1f2e36] text-white border border-white">
 					<Command.Root class="max-h-[300px] overflow-hidden flex flex-col">
 						<Command.Input 
-							placeholder="Search books..." 
+							placeholder="Search plays..." 
 							class="h-9 bg-[#1f2e36] text-white placeholder-gray-400 border-b border-white/20 px-3"
 							bind:value={searchTerm}
 						/>
 						{#if isLoading}
-							<div class="py-2 px-3 text-sm">Loading books...</div>
+							<div class="py-2 px-3 text-sm">Loading plays...</div>
 						{:else if filteredBooks.length === 0}
-							<Command.Empty class="py-2 px-3 text-sm">No book found.</Command.Empty>
+							<Command.Empty class="py-2 px-3 text-sm">No play found.</Command.Empty>
 						{:else}
 							<Command.Group class="overflow-y-auto">
 								{#each filteredBooks as book}
@@ -159,7 +156,7 @@
 		<form class="flex bg-[#1f2e36] border border-white w-full max-w-[600px] text-white text-sm items-center px-3 rounded-xl" on:submit|preventDefault={handleSearch}>
 			<input 
 				type="text" 
-				placeholder="Search"
+				placeholder="Search for a word or phrase"
 				class="flex-1 text-white placeholder-gray-400 outline-none bg-transparent py-2"
 				bind:value={searchInput}
 			/>

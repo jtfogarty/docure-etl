@@ -103,59 +103,79 @@ class TypesenseClient {
 
   async searchSpeeches(playId: string, searchText: string, page: number = 1, perPage: number = defaultPerPage): Promise<SearchResult> {
     try {
-      // Fetch play details
-      const playResult = await this.getRelatedDocuments<Play>('plays', [playId]);
-      if (playResult.length === 0) {
-        throw new Error(`Play with id ${playId} not found`);
+      let play: Play | null = null;
+      let characters: Character[] = [];
+      let acts: Act[] = [];
+      let allScenes: Scene[] = [];
+      let filterBy = '';
+
+      if (playId !== 'all') {
+        // Fetch play details
+        const playResult = await this.getRelatedDocuments<Play>('plays', [playId]);
+        if (playResult.length === 0) {
+          throw new Error(`Play with id ${playId} not found`);
+        }
+        play = playResult[0];
+
+        // Fetch characters
+        const charactersResult = await this.client.collections('characters').documents().search({
+          q: '*',
+          filter_by: `play_id:${playId}`,
+          per_page: defaultPerPage,
+        }) as TypesenseSearchResult<Character>;
+        characters = charactersResult.hits?.map(hit => hit.document) || [];
+
+        // Fetch acts
+        const actsResult = await this.client.collections('acts').documents().search({
+          q: '*',
+          filter_by: `play_id:${playId}`,
+          per_page: defaultPerPage,
+        }) as TypesenseSearchResult<Act>;
+        acts = actsResult.hits?.map(hit => hit.document) || [];
+
+        // Fetch scenes for the play (with pagination)
+        let scenePage = 1;
+        let totalScenes = 0;
+
+        do {
+          const scenesResult = await this.client.collections('scenes').documents().search({
+            q: '*',
+            filter_by: `act_id:=[${acts.map(act => act.id).join(',')}]`,
+            per_page: defaultPerPage,
+            page: scenePage,
+          }) as TypesenseSearchResult<Scene>;
+
+          allScenes = allScenes.concat(scenesResult.hits?.map(hit => hit.document) || []);
+          totalScenes = scenesResult.found || 0;
+          scenePage++;
+        } while (allScenes.length < totalScenes);
+
+        // Set filter for speeches
+        filterBy = `scene_id:=[${allScenes.map(scene => scene.id).join(',')}]`;
       }
-      const play = playResult[0];
 
-      // Fetch characters
-      const charactersResult = await this.client.collections('characters').documents().search({
-        q: '*',
-        filter_by: `id:${playId}`,
-        per_page: 100,
-      }) as TypesenseSearchResult<Character>;
-
-      // Fetch acts
-      const actsResult = await this.client.collections('acts').documents().search({
-        q: '*',
-        filter_by: `id:${playId}`,
-        per_page: 100,
-      }) as TypesenseSearchResult<Act>;
-
-      // Search scenes
-      const scenesResult = await this.client.collections('scenes').documents().search({
-        q: searchText,
-        query_by: 'title',
-        filter_by: `id:${playId}`,
-        per_page: perPage,
-        page: page,
-      }) as TypesenseSearchResult<Scene>;
-
-      // Fetch speeches
+      // Search speeches
       const speechesResult = await this.client.collections('speeches').documents().search({
         q: searchText,
         query_by: 'content',
-        filter_by: `scene_id:=[${scenesResult.hits?.map(hit => hit.document.id).join(',')}]`,
+        filter_by: filterBy,
         per_page: perPage,
         page: page,
       }) as TypesenseSearchResult<Speech>;
 
-      const scenes = scenesResult.hits?.map(hit => hit.document) || [];
       const speeches = speechesResult.hits?.map(hit => hit.document) || [];
       const found = speechesResult.found || 0;
       const total_pages = Math.ceil(found / perPage);
 
       return {
-        play: play,
-        characters: charactersResult.hits?.map(hit => hit.document) || [],
-        acts: actsResult.hits?.map(hit => hit.document) || [],
-        scenes: scenes,
-        speeches: speeches,
-        found: found,
-        page: page,
-        total_pages: total_pages,
+        play: play || { id: 'all', title: 'All Plays' },
+        characters,
+        acts,
+        scenes: allScenes,
+        speeches,
+        found,
+        page,
+        total_pages,
       };
     } catch (error) {
       throw new Error(`Error searching play data: ${error}`);
